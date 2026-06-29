@@ -322,6 +322,70 @@ class WorkflowTests(unittest.TestCase):
             self.assertTrue(report_path.exists())
             self.assertIn("EUR 4.30/share", report_path.read_text(encoding="utf-8"))
 
+    def test_skill_step_runner_writes_json_artifacts(self):
+        from dividend_pdf_workflow.skill_steps import run_step
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            folder = Path(tmpdir)
+            parsed_path = folder / "parsed-documents.json"
+            evidence_path = folder / "evidence.json"
+            ranking_path = folder / "ranking.json"
+            scenarios_path = folder / "scenarios.json"
+            report_model_path = folder / "report-model.json"
+
+            parsed_path.write_text(
+                """
+[
+  {
+    "path": "annual-2025.pdf",
+    "filename": "annual-2025.pdf",
+    "company": "TEST",
+    "document_type": "annual_report",
+    "reporting_period": "FY2025",
+    "publication_date": "2026-03",
+    "parse_error": null,
+    "pages": [
+      {
+        "page_number": 1,
+        "text": "The Board proposes a dividend of EUR 4.30 per share for fiscal year 2025.",
+        "tables": []
+      }
+    ]
+  }
+]
+""".strip(),
+                encoding="utf-8",
+            )
+
+            run_step("extract", folder)
+            self.assertTrue(evidence_path.exists())
+            self.assertIn("proposed_dividend_per_share", evidence_path.read_text(encoding="utf-8"))
+
+            run_step("rank", folder)
+            self.assertTrue(ranking_path.exists())
+
+            run_step("reason", folder)
+            self.assertTrue(scenarios_path.exists())
+
+            run_step("validate", folder)
+            self.assertTrue(report_model_path.exists())
+
+            report_path = run_step("render", folder)
+            self.assertEqual(report_path, folder / "dividend-report.html")
+            self.assertIn("Executive Summary", report_path.read_text(encoding="utf-8"))
+
+    def test_skill_docs_have_frontmatter_and_automation_commands(self):
+        skill_root = Path("skills")
+        skill_files = sorted(skill_root.glob("*/SKILL.md"))
+
+        self.assertEqual(len(skill_files), 6)
+        for skill_file in skill_files:
+            text = skill_file.read_text(encoding="utf-8")
+            self.assertTrue(text.startswith("---\n"), skill_file)
+            self.assertIn("name:", text)
+            self.assertIn("description:", text)
+            self.assertIn("scripts/dividend_skill_step.py", text)
+
 
 if __name__ == "__main__":
     unittest.main()
